@@ -68,6 +68,9 @@ identify the publisher as Torigan, every release is published with its
 checksum, and the full source is here for anyone who wants to build it
 themselves and skip the download entirely.
 
+How releases are built and who can authorise a signature is written
+down in [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+
 ---
 
 ## The first time
