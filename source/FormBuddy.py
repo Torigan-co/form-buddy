@@ -65,6 +65,8 @@ DEFAULT_SETTINGS = {
     "panel_visible": False,
     "panel_hide_delay_ms": 800,
     "panel_side": "left",              # left | right
+    # The strip above the taskbar that suggests answers while you type.
+    "suggest_bar": True,
     "theme": "system",                 # system | dark | light | midnight
 }
 
@@ -961,6 +963,15 @@ def release_alt_without_menu(alt_vk: int = VK_LMENU) -> None:
 
 # --- window helpers ---------------------------------------------------
 
+def work_area():
+    """The screen minus the taskbar: (left, top, right, bottom)."""
+    rect = wintypes.RECT()
+    SPI_GETWORKAREA = 0x0030
+    if user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
+        return rect.left, rect.top, rect.right, rect.bottom
+    return (0, 0, user32.GetSystemMetrics(0), user32.GetSystemMetrics(1))
+
+
 def set_foreground(hwnd: int) -> None:
     """Bring a window back to the front and give it the keyboard again."""
     try:
@@ -1072,9 +1083,12 @@ user32.UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
 class HotkeyHook:
     """Runs the hook on its own thread with its own message pump."""
 
-    def __init__(self, settings, on_trigger):
+    def __init__(self, settings, on_trigger, on_suggest_key=None):
         self.settings = settings
         self.on_trigger = on_trigger          # called when the hotkey fires
+        self.on_suggest_key = on_suggest_key  # Alt+arrow, while the strip is up
+        self.suggest_visible = False
+        self._alt_down = False
         self.enabled = True
         self._hook = None
         self._thread_id = None
@@ -1129,6 +1143,19 @@ class HotkeyHook:
 
         if not self.enabled or injected:
             return False
+
+        # Remember whether Alt is held, so the suggestion strip can claim
+        # Alt plus an arrow without disturbing a bare arrow key.
+        if vk in (VK_LMENU, VK_RMENU, VK_MENU):
+            self._alt_down = down
+
+        if (self.suggest_visible and self._alt_down and down
+                and self.on_suggest_key is not None):
+            action = {VK_LEFT: "left", VK_RIGHT: "right",
+                      VK_UP: "use", VK_RETURN: "use"}.get(vk)
+            if action:
+                self.on_suggest_key(action)
+                return True          # do not let it reach the app underneath
 
         hotkey = self.settings.get("hotkey", "double_alt")
         trigger_vks = HOTKEY_VKS.get(hotkey, HOTKEY_VKS["double_alt"])
@@ -1885,6 +1912,132 @@ class Palette:
                 self._cancel()
         except Exception:
             self._cancel()
+
+
+# ==========================================================================
+#  THE SUGGESTION STRIP
+# ==========================================================================
+# A thin strip that rises above the taskbar while you are typing a word that
+# looks like one of your answers. Hold Alt and use the arrow keys to pick one.
+#
+# It never takes focus and never types on its own: it only reacts to Alt plus
+# an arrow, which nothing else in Windows uses while you are mid-word.
+
+SUGGEST_POLL_MS = 500        # how often the focused box is checked
+SUGGEST_MIN_CHARS = 2        # shorter than this and everything matches
+SUGGEST_MAX = 5              # chips across the strip
+SUGGEST_HEIGHT = 66
+
+
+class SuggestionBar:
+    def __init__(self, root: tk.Tk, app):
+        self.root = root
+        self.app = app
+        self.win = None
+        self.visible = False
+        self._fields = []
+        self._index = 0
+        self._word = ""
+        self._chips = []
+
+    # -- window ------------------------------------------------------------
+    def _build(self) -> None:
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg=CARD_BORDER)
+        self.win = win
+
+        card = tk.Frame(win, bg=BG_ALT)
+        card.pack(padx=1, pady=1, fill="both", expand=True)
+
+        self.word_label = tk.Label(card, text="", bg=BG_ALT, fg=FG_FAINT,
+                                   font=FONT_SMALL)
+        self.word_label.pack(side="left", padx=(14, 10))
+
+        self.row = tk.Frame(card, bg=BG_ALT)
+        self.row.pack(side="left", fill="both", expand=True, pady=5)
+
+        tk.Label(card, text="Alt + \u2190 \u2192  \u00b7  Alt + \u2191 to use",
+                 bg=BG_ALT, fg=FG_FAINT, font=FONT_SMALL).pack(side="right",
+                                                               padx=14)
+
+        win.update_idletasks()
+        make_non_activating(win.winfo_id())
+
+    # -- showing -----------------------------------------------------------
+    def show(self, fields, word: str) -> None:
+        if self.win is None:
+            self._build()
+        same = [f.key for f in fields] == [f.key for f in self._fields]
+        self._fields = fields[:SUGGEST_MAX]
+        self._word = word
+        if not same:
+            self._index = 0
+        self._render()
+        if not self.visible:
+            self.win.deiconify()
+            self.win.lift()
+            self.visible = True
+            self.app.hook.suggest_visible = True
+
+    def hide(self) -> None:
+        if not self.visible:
+            return
+        self.visible = False
+        self.app.hook.suggest_visible = False
+        self._fields = []
+        self._index = 0
+        if self.win is not None:
+            self.win.withdraw()
+
+    def _render(self) -> None:
+        for chip in self._chips:
+            chip.destroy()
+        self._chips = []
+        self.word_label.config(text="\u201c%s\u201d" % self._word)
+
+        for i, field in enumerate(self._fields):
+            chosen = (i == self._index)
+            bg = SELECT if chosen else BG
+            chip = tk.Frame(self.row, bg=bg, cursor="hand2")
+            chip.pack(side="left", padx=4)
+            tk.Label(chip, text=field.label, bg=bg,
+                     fg=SELECT_TEXT if chosen else FG,
+                     font=FONT_BOLD if chosen else FONT).pack(
+                         side="top", padx=12, pady=(5, 0))
+            tk.Label(chip, text=field.preview(22), bg=bg,
+                     fg=SELECT_TEXT if chosen else FG_DIM,
+                     font=FONT_SMALL).pack(side="top", padx=12, pady=(0, 5))
+            for widget in (chip,) + tuple(chip.winfo_children()):
+                widget.bind("<Button-1>", lambda _e, n=i: self._click(n))
+            self._chips.append(chip)
+
+        self.win.update_idletasks()
+        width = min(self.win.winfo_reqwidth(), work_area()[2] - 80)
+        left, _top, right, bottom = work_area()
+        x = left + ((right - left) - width) // 2
+        y = bottom - SUGGEST_HEIGHT - 10
+        self.win.geometry("%dx%d+%d+%d" % (width, SUGGEST_HEIGHT, x, y))
+
+    # -- keys, fed by the global hook --------------------------------------
+    def move(self, step: int) -> None:
+        if not self.visible or not self._fields:
+            return
+        self._index = (self._index + step) % len(self._fields)
+        self._render()
+
+    def choose(self) -> None:
+        if not self.visible or not self._fields:
+            return
+        field = self._fields[self._index]
+        word = self._word
+        self.hide()
+        self.app.fill_from_suggestion(field, word)
+
+    def _click(self, index: int) -> None:
+        self._index = index
+        self.choose()
 
 
 # ==========================================================================
@@ -2818,7 +2971,26 @@ Type fm= then what to call it, = then the answer, and tap Alt Alt.
    "=": two parts means save it, one part means fill it in.
 
 
-6. THE SIDEBAR
+6. THE SUGGESTION STRIP
+
+While you type, a slim strip rises above the taskbar showing any of your
+answers that match the word you are part-way through. Hold Alt and use the
+arrow keys to take one, without reaching for the mouse or the search window.
+
+   Example
+     Start typing:  ema
+     The strip shows: Email, and anything else that matches.
+     Hold Alt, press the up arrow. "ema" becomes your email address.
+
+     Alt + left / right   move along the strip
+     Alt + up             use the highlighted one
+
+It only appears once you have typed two letters or more, only when something
+matches, and never while a Form Buddy window is open. Turn it off in Settings
+if you would rather not have it.
+
+
+7. THE SIDEBAR
 
 A thin strip sits on the edge of your screen. Touch it with the mouse and the
 sidebar slides open; move away and it hides again.
@@ -2834,7 +3006,7 @@ sidebar slides open; move away and it hides again.
    sidebar sits on, whether it is listening, lock or switch person, and quit.
 
 
-7. THE ANSWERS WINDOW
+8. THE ANSWERS WINDOW
 
 Search at the top, everything grouped by category underneath.
 
@@ -2851,7 +3023,7 @@ Search at the top, everything grouped by category underneath.
    ever open: opening Settings puts Answers away rather than stacking on it.
 
 
-8. WHEN IT GUESSES WRONG
+9. WHEN IT GUESSES WRONG
 
 With nothing typed, the search window opens with its best guess for that box
 at the top - it reads the box's own label, its id, its placeholder and the
@@ -2859,7 +3031,7 @@ text next to it. If the guess is wrong, just keep typing to search, or use
 the arrow keys.
 
 
-9. YOUR ANSWERS ARE ENCRYPTED
+10. YOUR ANSWERS ARE ENCRYPTED
 
 Each person has their own file, locked with their own password:
 
@@ -2872,7 +3044,7 @@ Nobody can recover it for you if you forget it, including this app.
 Use Lock / switch person in the sidebar menu to sign out or change person.
 
 
-10. THE ICON
+11. THE ICON
 
 The same shape everywhere, and the colour tells you the state.
 
@@ -2881,7 +3053,7 @@ The same shape everywhere, and the colour tells you the state.
    Orange   the program file itself, FormBuddy.exe
 
 
-11. IF SOMETHING IS NOT WORKING
+12. IF SOMETHING IS NOT WORKING
 
   * Nothing happens on Alt Alt
       Check the sidebar menu says "Listening". Some windows run as
@@ -3389,6 +3561,11 @@ class SettingsWindow(AppWindow):
                        "other Alt shortcut keep working.")
         self._checkbox(wrap, "show_toasts",
                        "Show a little confirmation after filling", "")
+        self._checkbox(wrap, "suggest_bar",
+                       "Suggest answers above the taskbar as I type",
+                       "A slim strip appears while you type a word that "
+                       "matches one of your answers. Hold Alt and use the "
+                       "arrow keys to take one.")
 
         tk.Label(wrap, text="Speed of the double tap", bg=BG, fg=FG,
                  font=FONT_BOLD, anchor="w").pack(fill="x", pady=(14, 0))
@@ -3610,6 +3787,7 @@ class FormBuddy:
         self.toast = Toast(self.root)
         self.palette = Palette(self.root, self)
         self.panel = Panel(self.root, self)
+        self.suggest = SuggestionBar(self.root, self)
         self.answers = AnswersWindow(self.root, self)
         self.settings_window = SettingsWindow(self.root, self)
         self.help_window = HelpWindow(self.root, self)
@@ -3618,7 +3796,8 @@ class FormBuddy:
         self._last_target = None      # last box outside our own windows
 
         self.events: "queue.Queue" = queue.Queue()
-        self.hook = HotkeyHook(self.settings, self._on_trigger)
+        self.hook = HotkeyHook(self.settings, self._on_trigger,
+                               self._on_suggest_key)
         self.hook.enabled = self.enabled
         self.tray = Tray(self)
 
@@ -3645,6 +3824,7 @@ class FormBuddy:
         self.tray.start()
         self.root.after(20, self._pump)
         self.root.after(150, self.panel.start)
+        self.root.after(900, self._watch_typing)
         if self.settings.get("panel_visible"):
             self.root.after(300, self.panel.show)
         if not self.profile.filled():
@@ -3738,6 +3918,8 @@ class FormBuddy:
                             % len(self.profile.filled()), "info")
         elif kind == "toggle":
             self.set_enabled(not self.enabled)
+        elif kind == "suggest":
+            self.on_suggest_key(payload)
         elif kind == "settings":
             self.settings_window.open()
         elif kind == "help":
@@ -3753,16 +3935,24 @@ class FormBuddy:
     def _on_trigger(self) -> None:
         self.post("trigger")
 
+    def _on_suggest_key(self, action) -> None:
+        self.post("suggest", action)
+
     # -- knowing which box to fill -----------------------------------------
-    def inspect_target(self, deep: bool = True):
+    def inspect_target(self, deep: bool = True, strict: bool = False):
         """The box the user is working in — never one of our own windows.
 
-        Our overlays are all no-activate, so focus normally stays put; this
-        only matters while the answer editor is open.
+        Our overlays are all no-activate, so focus normally stays put; the
+        remembered fallback only matters while one of the real windows is up.
+
+        `strict` refuses that fallback. Use it when deciding whether to type
+        into something: a box you clicked ten minutes ago is not where you
+        want an answer to land now, and copying to the clipboard instead is
+        always the safer miss.
         """
         ctx = inspect_focused(deep=deep)
         if ctx is None or window_pid(ctx.hwnd) == self._pid:
-            return self._last_target
+            return None if strict else self._last_target
         self._last_target = ctx
         return ctx
 
@@ -3984,7 +4174,9 @@ class FormBuddy:
             self.palette_cancelled()
             return
 
-        ctx = self.inspect_target()
+        # Strict: only a box that has the caret right now counts. Without
+        # this an answer could land in something focused minutes ago.
+        ctx = self.inspect_target(strict=True)
 
         if ctx is not None and ctx.editable:
             # 1. fm=name=value -> save that answer and tidy the line away
@@ -4102,6 +4294,54 @@ class FormBuddy:
         self.on_profile_changed()
         self.toast.show("%s “%s”" % (verb, field.label), "ok")
         return field
+
+    def fill_from_suggestion(self, field, word: str) -> None:
+        """Alt+arrow picked a chip: swap the half-typed word for the answer."""
+        ctx = self.inspect_target(strict=True)
+        if ctx is None or not ctx.editable:
+            return self.copy_to_clipboard(field)
+        self._reset_cycle()
+        self._fill(field, ctx, consume=word, selected=False)
+
+    def _watch_typing(self) -> None:
+        """Look at the word being typed and offer anything that matches."""
+        try:
+            self._suggest_tick()
+        except Exception:
+            pass
+        self.root.after(SUGGEST_POLL_MS, self._watch_typing)
+
+    def _suggest_tick(self) -> None:
+        if not (self.enabled and self.settings.get("suggest_bar", True)):
+            return self.suggest.hide()
+        if self.palette.is_open or self._template is not None:
+            return self.suggest.hide()
+        if any(w.is_open for w in self.app_windows()):
+            return self.suggest.hide()
+
+        ctx = self.inspect_target(deep=False, strict=True)
+        if ctx is None or not ctx.editable:
+            return self.suggest.hide()
+
+        word = (ctx.selection or ctx.caret_word).strip()
+        if len(word) < SUGGEST_MIN_CHARS or len(word) > 30:
+            return self.suggest.hide()
+        if word.lower().startswith(("fb=", "fm=")):
+            return self.suggest.hide()      # that is the placeholder syntax
+
+        hits = search(self.profile.filled(), word)[:SUGGEST_MAX]
+        if not hits:
+            return self.suggest.hide()
+        self.suggest.show(hits, word)
+
+    def on_suggest_key(self, action: str) -> None:
+        """Alt plus an arrow, forwarded from the keyboard hook."""
+        if action == "left":
+            self.suggest.move(-1)
+        elif action == "right":
+            self.suggest.move(1)
+        elif action == "use":
+            self.suggest.choose()
 
     def app_windows(self):
         """The four full windows. Only one of them is ever open."""

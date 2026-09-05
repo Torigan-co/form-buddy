@@ -39,9 +39,20 @@ you tapping `Alt` twice. It also reads the text box you are focused on, through
 the standard Windows UI Automation interface, so it can work out what the form
 is asking for.
 
-Neither of those is recorded. Keystrokes are examined for the shortcut and
-discarded. The label of the box you are in is used to pick an answer and then
-forgotten. Nothing is written to a log.
+While the suggestion strip is switched on, Form Buddy also reads the word you
+are part-way through typing, twice a second, so it can offer anything that
+matches. It reads that word from the box itself through UI Automation — it
+does not keep a record of your keystrokes to reconstruct it.
+
+None of this is stored. Keystrokes are examined for the shortcut and
+discarded. The word under the caret is compared against your own saved
+answers and then forgotten. The label of the box you are in is used to pick an
+answer and then forgotten. Nothing is written to a log, and nothing is sent
+anywhere.
+
+If you would rather it did not read as you type, turn the suggestion strip off
+in Settings; everything else keeps working, and the app then only looks at a
+box when you tap the shortcut.
 
 Mechanically this overlaps with what a keylogger does, which is why antivirus
 software sometimes flags it. The difference is entirely in what happens next,

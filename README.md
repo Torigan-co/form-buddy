@@ -112,11 +112,32 @@ the screen with the cursor already in it. Type, press `Enter`, done.
 | Placeholders like `fb=email` | Every one of them is filled, in order |
 | `fm=last name=Perera` | Saves that answer, then clears the line away |
 
-If you were not in a text box at all, `Enter` copies the answer to the
-clipboard instead, so you always get it either way.
+**If the caret is not in a text box, nothing is ever typed anywhere.** The
+answer goes to the clipboard instead and you paste it where you want it. Form
+Buddy only fills a box that has the caret at that moment — never one you were
+in earlier.
 
 **It never wipes a box.** Whatever is already there stays, so you can put a
 first name in, tap again, and add the last name after it.
+
+### The suggestion strip
+
+While you type, a slim strip rises above the taskbar showing any of your
+answers that match the word you are part-way through.
+
+```
+Start typing:   ema
+The strip shows: Email  ·  Alternate phone  ·  ...
+Hold Alt, press ↑ →  "ema" becomes your email address
+```
+
+| | |
+| --- | --- |
+| `Alt` + `←` `→` | move along the strip |
+| `Alt` + `↑` | use the highlighted one |
+
+It appears only after two letters, only when something matches, and never
+while a Form Buddy window is open. Turn it off in Settings.
 
 ### The sidebar
 
