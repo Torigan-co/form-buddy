@@ -1,4 +1,5 @@
-# Builds FormBuddy.exe from source, in the open, on GitHub's runners.
+# Builds FormBuddy.exe from source, in the open, on GitHub's runners, and
+# publishes it as a release when a version tag is pushed.
 #
 # SignPath will only sign artefacts that come out of an automated build of the
 # published source, so this workflow is the thing that makes the signature
@@ -12,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write        # needed to create the release
 
 jobs:
   windows:
@@ -64,6 +65,16 @@ jobs:
           Write-Host "FileVersion: $($v.FileVersion)"
           if ($v.CompanyName -ne "Torigan") { throw "version resource missing" }
 
+      - name: Check nothing personal was baked in
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("dist/FormBuddy.exe")
+          $text = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($probe in @("Sameera", "virajofficialinfo", "+94 77 581")) {
+            if ($text.Contains($probe)) { throw "personal data found in build: $probe" }
+          }
+          Write-Host "clean"
+
       - name: Upload the build
         uses: actions/upload-artifact@v4
         with:
@@ -72,3 +83,42 @@ jobs:
             dist/FormBuddy.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Form Buddy ${{ github.ref_name }}
+          files: |
+            dist/FormBuddy.exe
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          body: |
+            **Fill any form on Windows with two taps of `Alt`.**
+
+            Download `FormBuddy.exe` below and double-click it. No installer,
+            no account, nothing to set up.
+
+            ### Verify what you downloaded
+
+            ```powershell
+            Get-FileHash .\FormBuddy.exe -Algorithm SHA256
+            ```
+
+            Compare it with `SHA256SUMS.txt` attached to this release. This
+            binary was built by GitHub Actions from the source in this
+            repository — the build log is public.
+
+            ### Windows will warn you
+
+            The file is not code-signed yet, so Windows shows *"unknown
+            publisher"*. Click **More info**, then **Run anyway**. Please do
+            not disable your antivirus. The reasons are explained in full in
+            the [README](https://github.com/Torigan-co/form-buddy#windows-will-warn-you-the-first-time),
+            and free code signing is being arranged through
+            [SignPath Foundation](https://signpath.org).
+
+            ### Privacy
+
+            Form Buddy collects nothing. There is no network code in it at
+            all. See [PRIVACY.md](https://github.com/Torigan-co/form-buddy/blob/main/PRIVACY.md).
