@@ -14,10 +14,15 @@ install.
 
 ## Download
 
-**[FormBuddy.exe](../../raw/main/FormBuddy.exe)** — 22 MB, Windows 10 or 11.
+**[Download FormBuddy.exe](https://github.com/Torigan-co/form-buddy/releases/latest/download/FormBuddy.exe)**
+— Windows 10 or 11, about 24 MB.
 
 Double-click it. There is no installer, no account and no setup. Copy it to a
 USB stick and it runs the same on any Windows PC.
+
+Every release is built by GitHub Actions from the source in this repository,
+and the build log is public — so the file you download is provably the code
+you can read here.
 
 Free code signing for this project is provided by
 [SignPath Foundation](https://signpath.org), using the SignPath.io service.
@@ -28,8 +33,6 @@ downloaded.
 
 Privacy: [PRIVACY.md](PRIVACY.md) — Form Buddy collects nothing and has no
 network code at all.
-
----
 
 ## Windows will warn you the first time
 
@@ -54,22 +57,20 @@ turn your antivirus off for — please don't. Here is exactly why it happens:
 
 ### Check what you downloaded
 
-Verify the file matches the one published here before you run it:
+Every release ships a `SHA256SUMS.txt` beside the exe. Compare them:
 
 ```powershell
 Get-FileHash .\FormBuddy.exe -Algorithm SHA256
 ```
 
-It should print:
+The value it prints should match the one in
+[SHA256SUMS.txt](https://github.com/Torigan-co/form-buddy/releases/latest/download/SHA256SUMS.txt)
+from the same release. Both files are produced by the same public build, so
+you can check the build log too.
 
-```
-b6e4fc675c8a74b77ff534dafe8c0c8a511ca4c4a92b59c4e90c20ba863e516a
-```
-
-That value is also in [SHA256SUMS.txt](SHA256SUMS.txt). You can upload the
-file to [VirusTotal](https://www.virustotal.com) for a second opinion —
-expect one or two heuristic flags from the keyboard hook, and zero from the
-major engines.
+You can upload the file to [VirusTotal](https://www.virustotal.com) for a
+second opinion — expect a heuristic flag or two from the keyboard hook, and
+nothing from the major engines.
 
 ### What is being done about it
 
