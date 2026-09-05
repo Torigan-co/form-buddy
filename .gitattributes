@@ -1,0 +1,14 @@
+# Normalise line endings, so the same file does not come out different on
+# different machines. Without this, a copy checked out on Windows and a copy
+# written by a script quietly stop matching byte for byte.
+* text=auto
+
+# Keep these exactly as they are.
+*.py    text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+
+*.ico   binary
+*.exe   binary
+*.png   binary

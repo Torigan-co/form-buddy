@@ -65,15 +65,22 @@ jobs:
           Write-Host "FileVersion: $($v.FileVersion)"
           if ($v.CompanyName -ne "Torigan") { throw "version resource missing" }
 
-      - name: Check nothing personal was baked in
+      - name: Check the examples are still placeholders
         shell: pwsh
         run: |
+          # Asserting the placeholders are PRESENT, rather than listing real
+          # details to search for - a guard against leaking personal data
+          # should not itself publish any.
           $bytes = [IO.File]::ReadAllBytes("dist/FormBuddy.exe")
-          $text = [Text.Encoding]::ASCII.GetString($bytes)
-          foreach ($probe in @("Sameera", "virajofficialinfo", "+94 77 581")) {
-            if ($text.Contains($probe)) { throw "personal data found in build: $probe" }
+          if ($bytes.Length -lt 1000000) { throw "build looks truncated" }
+          $src = Get-Content source/FormBuddy.py -Raw
+          foreach ($placeholder in @("Alex Perera", "+94 77 000 0000",
+                                     "your.address@example.com")) {
+            if (-not $src.Contains($placeholder)) {
+              throw "example placeholder missing from the help text: $placeholder"
+            }
           }
-          Write-Host "clean"
+          Write-Host "examples are placeholders"
 
       - name: Upload the build
         uses: actions/upload-artifact@v4
