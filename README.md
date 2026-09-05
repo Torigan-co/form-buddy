@@ -21,6 +21,55 @@ USB stick and it runs the same on any Windows PC.
 
 ---
 
+## Windows will warn you the first time
+
+Windows shows **"Windows protected your PC — unknown publisher"** when you
+run it. Click **More info**, then **Run anyway**.
+
+This is not a sign that anything is wrong, and it is not something you should
+turn your antivirus off for — please don't. Here is exactly why it happens:
+
+- **The file is not code-signed.** A signing certificate costs money every
+  year. Form Buddy is free and open source and earns nothing, so it does not
+  have one yet.
+- **Windows has not seen it before.** SmartScreen trusts files that lots of
+  people have already downloaded safely. A new release starts from zero.
+- **The app really does hook the keyboard.** It has to — that is how it
+  notices you tapping `Alt` twice, and how it types your answer into another
+  program. To an antivirus scanner that behaviour looks like a keylogger,
+  because mechanically it is the same thing. The difference is what it does
+  with it: nothing is recorded, nothing is sent anywhere, and there is no
+  network code in the program at all. You can read every line of that in
+  [`source/FormBuddy.py`](source/FormBuddy.py).
+
+### Check what you downloaded
+
+Verify the file matches the one published here before you run it:
+
+```powershell
+Get-FileHash .\FormBuddy.exe -Algorithm SHA256
+```
+
+It should print:
+
+```
+b6e4fc675c8a74b77ff534dafe8c0c8a511ca4c4a92b59c4e90c20ba863e516a
+```
+
+That value is also in [SHA256SUMS.txt](SHA256SUMS.txt). You can upload the
+file to [VirusTotal](https://www.virustotal.com) for a second opinion —
+expect one or two heuristic flags from the keyboard hook, and zero from the
+major engines.
+
+### What is being done about it
+
+Signing is the real fix, and it is on the list. Until then the file properties
+identify the publisher as Torigan, every release is published with its
+checksum, and the full source is here for anyone who wants to build it
+themselves and skip the download entirely.
+
+---
+
 ## The first time
 
 You are asked for a name and a password. That password encrypts your answers
@@ -161,6 +210,31 @@ data, so sharing the file shares nothing about you.
 Anywhere Windows exposes a text box, which is nearly everywhere: Edge, Chrome
 and Firefox web forms, Word, Excel, Outlook, PDF form fields, Electron apps
 such as Slack and VS Code, and ordinary desktop dialogs.
+
+---
+
+## Build it yourself
+
+The whole program is one file: [`source/FormBuddy.py`](source/FormBuddy.py).
+If you would rather not download a binary at all, run it directly:
+
+```
+py -m pip install uiautomation pystray pillow cryptography
+```
+```
+py source/FormBuddy.py
+```
+
+To produce the same `FormBuddy.exe` that is published here:
+
+```
+py -m pip install pyinstaller
+```
+```
+py -m PyInstaller --onefile --noconsole --noupx --name FormBuddy --icon source/formbuddy.ico --version-file source/version_info.txt source/FormBuddy.py
+```
+
+Needs Windows 10 or 11 and Python 3.10 or newer.
 
 ---
 
