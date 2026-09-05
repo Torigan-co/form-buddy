@@ -19,6 +19,16 @@ install.
 Double-click it. There is no installer, no account and no setup. Copy it to a
 USB stick and it runs the same on any Windows PC.
 
+Free code signing for this project is provided by
+[SignPath Foundation](https://signpath.org), using the SignPath.io service.
+Releases signed under that certificate show **Torigan** as the publisher.
+Until the first signed release is published, Windows shows an "unknown
+publisher" warning — see the next section for why, and how to verify what you
+downloaded.
+
+Privacy: [PRIVACY.md](PRIVACY.md) — Form Buddy collects nothing and has no
+network code at all.
+
 ---
 
 ## Windows will warn you the first time
