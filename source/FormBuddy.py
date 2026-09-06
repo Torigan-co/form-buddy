@@ -1088,7 +1088,8 @@ class HotkeyHook:
         self.on_trigger = on_trigger          # called when the hotkey fires
         self.on_suggest_key = on_suggest_key  # Alt+arrow, while the strip is up
         self.suggest_visible = False
-        self._alt_down = False
+        self.suggest_armed = False
+        self._ctrl_down = False
         self.enabled = True
         self._hook = None
         self._thread_id = None
@@ -1144,18 +1145,27 @@ class HotkeyHook:
         if not self.enabled or injected:
             return False
 
-        # Remember whether Alt is held, so the suggestion strip can claim
-        # Alt plus an arrow without disturbing a bare arrow key.
-        if vk in (VK_LMENU, VK_RMENU, VK_MENU):
-            self._alt_down = down
+        if vk in (VK_LCONTROL, VK_RCONTROL, VK_CONTROL):
+            self._ctrl_down = down
 
-        if (self.suggest_visible and self._alt_down and down
-                and self.on_suggest_key is not None):
-            action = {VK_LEFT: "left", VK_RIGHT: "right",
-                      VK_UP: "use", VK_RETURN: "use"}.get(vk)
-            if action:
-                self.on_suggest_key(action)
-                return True          # do not let it reach the app underneath
+        # Ctrl+Space hands the arrow keys to the suggestion strip, and only
+        # then. No modifier-plus-arrow is genuinely free in a text box, so
+        # rather than fight over one, the strip borrows the plain arrows for
+        # the few seconds you are actually using it.
+        if (down and self.suggest_visible and self.on_suggest_key is not None):
+            if self._ctrl_down and vk == VK_SPACE and not self.suggest_armed:
+                self.on_suggest_key("arm")
+                return True
+            if self.suggest_armed:
+                action = {VK_LEFT: "left", VK_RIGHT: "right",
+                          VK_RETURN: "use", VK_ESCAPE: "leave"}.get(vk)
+                if action:
+                    self.on_suggest_key(action)
+                    return True
+                if vk not in _MODIFIERS:
+                    # Carrying on typing simply lets go of the strip; the
+                    # keystroke still reaches whatever you were typing into.
+                    self.on_suggest_key("leave")
 
         hotkey = self.settings.get("hotkey", "double_alt")
         trigger_vks = HOTKEY_VKS.get(hotkey, HOTKEY_VKS["double_alt"])
@@ -1939,6 +1949,7 @@ class SuggestionBar:
         self._index = 0
         self._word = ""
         self._chips = []
+        self.armed = False
 
     # -- window ------------------------------------------------------------
     def _build(self) -> None:
@@ -1958,9 +1969,11 @@ class SuggestionBar:
         self.row = tk.Frame(card, bg=BG_ALT)
         self.row.pack(side="left", fill="both", expand=True, pady=5)
 
-        tk.Label(card, text="Alt + \u2190 \u2192  \u00b7  Alt + \u2191 to use",
-                 bg=BG_ALT, fg=FG_FAINT, font=FONT_SMALL).pack(side="right",
-                                                               padx=14)
+        # Fixed width: the hint changes when the strip is armed, and a label
+        # that resizes would make the whole strip jump and clip itself.
+        self.hint = tk.Label(card, text="", bg=BG_ALT, fg=FG_FAINT,
+                             font=FONT_SMALL, width=22, anchor="e")
+        self.hint.pack(side="right", padx=14)
 
         win.update_idletasks()
         make_non_activating(win.winfo_id())
@@ -1985,6 +1998,7 @@ class SuggestionBar:
         if not self.visible:
             return
         self.visible = False
+        self.disarm()
         self.app.hook.suggest_visible = False
         self._fields = []
         self._index = 0
@@ -1996,6 +2010,11 @@ class SuggestionBar:
             chip.destroy()
         self._chips = []
         self.word_label.config(text="\u201c%s\u201d" % self._word)
+        self.hint.config(
+            text=("\u2190 \u2192  \u00b7  Enter  \u00b7  Esc"
+                  if self.armed else "Ctrl + Space to pick"),
+            fg=ACCENT if self.armed else FG_FAINT)
+        self.win.configure(bg=SELECT if self.armed else CARD_BORDER)
 
         for i, field in enumerate(self._fields):
             chosen = (i == self._index)
@@ -2021,6 +2040,22 @@ class SuggestionBar:
         self.win.geometry("%dx%d+%d+%d" % (width, SUGGEST_HEIGHT, x, y))
 
     # -- keys, fed by the global hook --------------------------------------
+    def arm(self) -> None:
+        """Take the arrow keys, until Enter, Esc, or you carry on typing."""
+        if not self.visible or self.armed:
+            return
+        self.armed = True
+        self.app.hook.suggest_armed = True
+        self._render()
+
+    def disarm(self) -> None:
+        if not self.armed:
+            return
+        self.armed = False
+        self.app.hook.suggest_armed = False
+        if self.visible:
+            self._render()
+
     def move(self, step: int) -> None:
         if not self.visible or not self._fields:
             return
@@ -2030,6 +2065,7 @@ class SuggestionBar:
     def choose(self) -> None:
         if not self.visible or not self._fields:
             return
+        self.disarm()
         field = self._fields[self._index]
         word = self._word
         self.hide()
@@ -2978,12 +3014,21 @@ answers that match the word you are part-way through. Hold Alt and use the
 arrow keys to take one, without reaching for the mouse or the search window.
 
    Example
-     Start typing:  ema
+     Start typing:    ema
      The strip shows: Email, and anything else that matches.
-     Hold Alt, press the up arrow. "ema" becomes your email address.
+     Press Ctrl+Space, then Enter. "ema" becomes your email address.
 
-     Alt + left / right   move along the strip
-     Alt + up             use the highlighted one
+     Ctrl + Space     hand the arrow keys to the strip
+     left / right     move along it
+     Enter            use the highlighted one
+     Esc              leave it alone
+
+You can also just click a chip with the mouse.
+
+The strip does not take the arrow keys until you press Ctrl+Space, and it
+gives them straight back the moment you press Enter, press Esc, or simply
+carry on typing. Nothing else on your keyboard changes behaviour while it is
+on screen.
 
 It only appears once you have typed two letters or more, only when something
 matches, and never while a Form Buddy window is open. Turn it off in Settings
@@ -3564,8 +3609,8 @@ class SettingsWindow(AppWindow):
         self._checkbox(wrap, "suggest_bar",
                        "Suggest answers above the taskbar as I type",
                        "A slim strip appears while you type a word that "
-                       "matches one of your answers. Hold Alt and use the "
-                       "arrow keys to take one.")
+                       "matches one of your answers. Press Ctrl+Space to "
+                       "steer it with the arrow keys, or just click one.")
 
         tk.Label(wrap, text="Speed of the double tap", bg=BG, fg=FG,
                  font=FONT_BOLD, anchor="w").pack(fill="x", pady=(14, 0))
@@ -4329,19 +4374,25 @@ class FormBuddy:
         if word.lower().startswith(("fb=", "fm=")):
             return self.suggest.hide()      # that is the placeholder syntax
 
+        if self.suggest.armed:
+            return                   # leave it alone while you are using it
         hits = search(self.profile.filled(), word)[:SUGGEST_MAX]
         if not hits:
             return self.suggest.hide()
         self.suggest.show(hits, word)
 
     def on_suggest_key(self, action: str) -> None:
-        """Alt plus an arrow, forwarded from the keyboard hook."""
-        if action == "left":
+        """Ctrl+Space and the arrows, forwarded from the keyboard hook."""
+        if action == "arm":
+            self.suggest.arm()
+        elif action == "left":
             self.suggest.move(-1)
         elif action == "right":
             self.suggest.move(1)
         elif action == "use":
             self.suggest.choose()
+        elif action == "leave":
+            self.suggest.disarm()
 
     def app_windows(self):
         """The four full windows. Only one of them is ever open."""

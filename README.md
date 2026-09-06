@@ -126,15 +126,23 @@ While you type, a slim strip rises above the taskbar showing any of your
 answers that match the word you are part-way through.
 
 ```
-Start typing:   ema
+Start typing:    ema
 The strip shows: Email  ·  Alternate phone  ·  ...
-Hold Alt, press ↑ →  "ema" becomes your email address
+Ctrl+Space, Enter →  "ema" becomes your email address
 ```
 
 | | |
 | --- | --- |
-| `Alt` + `←` `→` | move along the strip |
-| `Alt` + `↑` | use the highlighted one |
+| **Click a chip** | use it, no keyboard involved |
+| `Ctrl` + `Space` | hand the arrow keys to the strip |
+| `←` `→` | move along it |
+| `Enter` | use the highlighted one |
+| `Esc` | leave it alone |
+
+**It does not claim your arrow keys.** They stay yours until you press
+`Ctrl`+`Space`, and you get them back the moment you press `Enter`, press
+`Esc`, or just carry on typing. Nothing else on the keyboard changes while
+the strip is up.
 
 It appears only after two letters, only when something matches, and never
 while a Form Buddy window is open. Turn it off in Settings.
